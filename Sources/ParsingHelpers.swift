@@ -171,8 +171,11 @@ public extension Formatter {
 
     /// Returns the end of the expression at the specified index, optionally stopping at any of the specified tokens
     func endOfExpression(at index: Int, upTo delimiters: [Token]) -> Int? {
-        var lastIndex = index
         var index: Int? = index
+        if token(at: index!)?.isEndOfScope == true {
+            index = self.index(of: .nonSpaceOrLinebreak, after: index!)
+        }
+        var lastIndex = index
         var wasOperator = true
         while var i = index {
             let token = tokens[i]
@@ -196,7 +199,8 @@ public extension Formatter {
                     return lastIndex
                 }
                 wasOperator = false
-            case .startOfScope where wasOperator,
+            case .startOfScope("<"),
+                 .startOfScope where wasOperator,
                  .startOfScope("{") where isStartOfClosure(at: i),
                  .startOfScope("(") where isSubscriptOrFunctionCall(at: i),
                  .startOfScope("[") where isSubscriptOrFunctionCall(at: i):
@@ -414,6 +418,15 @@ extension Formatter {
         return startIndex
     }
 
+    /// Return true if token at specified index in a function in the given list
+    func isFunction(at i: Int, in names: Set<String>) -> Bool {
+        // TODO: more sophisticated checks involving full signature, namespace, etc
+        guard let name = token(at: i)?.unescaped() else {
+            return false
+        }
+        return names.contains(name)
+    }
+
     /// Gather declared variable names, starting at index after let/var keyword
     func processDeclaredVariables(at index: inout Int, names: inout Set<String>) {
         processDeclaredVariables(at: &index, names: &names, removeSelf: false,
@@ -516,7 +529,8 @@ extension Formatter {
                 }
             }
             fallthrough
-        case .endOfScope where tokens[prevIndex].isStringDelimiter, .identifier, .number:
+        case .identifier, .number, .operator("?", .postfix), .operator("!", .postfix),
+             .endOfScope where tokens[prevIndex].isStringDelimiter:
             if let nextIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: i),
                isAccessorKeyword(at: nextIndex) || isAccessorKeyword(at: prevIndex)
             {
@@ -560,8 +574,7 @@ extension Formatter {
             default:
                 return true
             }
-        case .operator("?", .postfix), .operator("!", .postfix),
-             .keyword, .endOfScope("]"), .endOfScope(">"):
+        case .keyword, .endOfScope("]"), .endOfScope(">"):
             return false
         default:
             return true
@@ -979,18 +992,26 @@ extension Formatter {
         return false
     }
 
-    /// Detect if code is inside a ViewBuilder
-    func isInViewBuilder(at i: Int) -> Bool {
+    /// Crude check to detect if code is inside a Result Builder
+    /// Note: this will produce false positives for any init that takes a closure
+    func isInResultBuilder(at i: Int) -> Bool {
         var i = i
-        while let startIndex = index(of: .startOfScope("{"), before: i) {
-            guard let prevIndex = index(of: .nonSpaceOrCommentOrLinebreak, before: startIndex) else {
+        while let startIndex = index(before: i, where: {
+            [.startOfScope("{"), .startOfScope(":")].contains($0)
+        }) {
+            guard let prevIndex = index(before: startIndex, where: {
+                !$0.isSpaceOrCommentOrLinebreak && !$0.isEndOfScope
+            }) else {
                 return false
             }
-            if tokens[prevIndex] == .identifier("View"),
-               let prevToken = last(.nonSpaceOrCommentOrLinebreak, before: prevIndex),
-               [.delimiter(":"), .identifier("some")].contains(prevToken)
-            {
-                return true
+            if case let .identifier(name) = tokens[prevIndex], name.first?.isUppercase == true {
+                switch last(.nonSpaceOrComment, before: prevIndex) {
+                case .identifier("some")?, .delimiter?, .startOfScope?, .endOfScope?,
+                     .operator(_, .infix)?, .operator(_, .prefix)?, nil:
+                    return true
+                default:
+                    break
+                }
             }
             i = prevIndex
         }
@@ -1007,7 +1028,12 @@ extension Formatter {
             switch unescaped {
             case "_":
                 return true
-            case "super", "self", "nil", "true", "false":
+            case "self":
+                if last(.nonSpaceOrCommentOrLinebreak, before: i)?.isOperator(".") == true {
+                    return true
+                }
+                fallthrough
+            case "super", "nil", "true", "false":
                 if options.swiftVersion < "4" {
                     return true
                 }
@@ -1131,6 +1157,69 @@ extension Formatter {
         default:
             return false
         }
+    }
+
+    /// Parses a type name starting at the given index, of one of the following forms:
+    ///  - `Foo`
+    ///  - `[...]`
+    ///  - `(...)`
+    ///  - `Foo<...>`
+    ///  - `(...) -> ...`
+    ///  - `...?`
+    ///  - `...!`
+    func parseType(at startOfTypeIndex: Int) -> (name: String, range: ClosedRange<Int>) {
+        let baseType = parseNonOptionalType(at: startOfTypeIndex)
+
+        // Any type can be optional, so check for a trailing `?` or `!`
+        if let nextToken = index(of: .nonSpaceOrCommentOrLinebreak, after: baseType.range.upperBound),
+           ["?", "!"].contains(tokens[nextToken].string)
+        {
+            let typeRange = baseType.range.lowerBound ... nextToken
+            return (name: tokens[typeRange].string, range: typeRange)
+        }
+
+        return baseType
+    }
+
+    private func parseNonOptionalType(at startOfTypeIndex: Int) -> (name: String, range: ClosedRange<Int>) {
+        // Parse types of the form `[...]`
+        if tokens[startOfTypeIndex] == .startOfScope("["),
+           let endOfScope = endOfScope(at: startOfTypeIndex)
+        {
+            let typeRange = startOfTypeIndex ... endOfScope
+            return (name: tokens[typeRange].string, range: typeRange)
+        }
+
+        // Parse types of the form `(...)` or `(...) -> ...`
+        if tokens[startOfTypeIndex] == .startOfScope("("),
+           let endOfScope = endOfScope(at: startOfTypeIndex)
+        {
+            // Parse types of the form `(...) -> ...`
+            if let closureReturnIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: endOfScope),
+               tokens[closureReturnIndex] == .operator("->", .infix),
+               let returnTypeIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: closureReturnIndex)
+            {
+                let returnTypeRange = parseType(at: returnTypeIndex).range
+                let typeRange = startOfTypeIndex ... returnTypeRange.upperBound
+                return (name: tokens[typeRange].string, range: typeRange)
+            }
+
+            // Otherwise this is just `(...)`
+            let typeRange = startOfTypeIndex ... endOfScope
+            return (name: tokens[typeRange].string, range: typeRange)
+        }
+
+        // Parse types of the form `Foo<...>`
+        if let nextTokenIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: startOfTypeIndex),
+           tokens[nextTokenIndex] == .startOfScope("<"),
+           let endOfScope = endOfScope(at: nextTokenIndex)
+        {
+            let typeRange = startOfTypeIndex ... endOfScope
+            return (name: tokens[typeRange].string, range: typeRange)
+        }
+
+        // Otherwise this is just a single identifier
+        return (name: tokens[startOfTypeIndex].string, range: startOfTypeIndex ... startOfTypeIndex)
     }
 
     struct ImportRange: Comparable {
@@ -1829,6 +1918,118 @@ extension Formatter {
             return nil
         }
     }
+
+    struct SwitchCaseRange {
+        let beforeDelimiterRange: Range<Int>
+        let delimiterToken: Token
+        let afterDelimiterRange: Range<Int>
+    }
+
+    func parseSwitchCaseRanges() -> [[SwitchCaseRange]] {
+        var result: [[SwitchCaseRange]] = []
+
+        forEach(.endOfScope("case")) { i, _ in
+            var switchCaseRanges: [SwitchCaseRange] = []
+            guard let lastDelimiterIndex = index(of: .startOfScope(":"), after: i),
+                  let endIndex = index(after: lastDelimiterIndex, where: { $0.isLinebreak }) else { return }
+
+            var idx = i
+            while idx < endIndex,
+                  let startOfCaseIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: idx),
+                  let delimiterIndex = index(after: idx, where: {
+                      $0 == .delimiter(",") || $0 == .startOfScope(":")
+                  }),
+                  let delimiterToken = token(at: delimiterIndex),
+                  let endOfCaseIndex = lastIndex(
+                      of: .nonSpaceOrCommentOrLinebreak,
+                      in: startOfCaseIndex ..< delimiterIndex
+                  )
+            {
+                let afterDelimiterRange: Range<Int>
+
+                let startOfCommentIdx = delimiterIndex + 1
+                if startOfCommentIdx <= endIndex,
+                   token(at: startOfCommentIdx)?.isSpaceOrCommentOrLinebreak == true,
+                   let nextNonSpaceOrComment = index(of: .nonSpaceOrComment, after: startOfCommentIdx)
+                {
+                    if token(at: startOfCommentIdx)?.isLinebreak == true
+                        || token(at: nextNonSpaceOrComment)?.isSpaceOrCommentOrLinebreak == false
+                    {
+                        afterDelimiterRange = startOfCommentIdx ..< (startOfCommentIdx + 1)
+                    } else if endIndex > startOfCommentIdx {
+                        afterDelimiterRange = startOfCommentIdx ..< (nextNonSpaceOrComment + 1)
+                    } else {
+                        afterDelimiterRange = endIndex ..< (endIndex + 1)
+                    }
+                } else {
+                    afterDelimiterRange = 0 ..< 0
+                }
+
+                let switchCaseRange = SwitchCaseRange(
+                    beforeDelimiterRange: Range(startOfCaseIndex ... endOfCaseIndex),
+                    delimiterToken: delimiterToken,
+                    afterDelimiterRange: afterDelimiterRange
+                )
+
+                switchCaseRanges.append(switchCaseRange)
+
+                if afterDelimiterRange.isEmpty {
+                    idx = delimiterIndex
+                } else if afterDelimiterRange.count > 1 {
+                    idx = afterDelimiterRange.upperBound
+                } else {
+                    idx = afterDelimiterRange.lowerBound
+                }
+            }
+            result.append(switchCaseRanges)
+        }
+        return result
+    }
+
+    struct EnumCaseRange: Comparable {
+        let value: Range<Int>
+        let endOfCaseRangeToken: Token
+
+        static func < (lhs: Formatter.EnumCaseRange, rhs: Formatter.EnumCaseRange) -> Bool {
+            lhs.value.lowerBound < rhs.value.lowerBound
+        }
+    }
+
+    func parseEnumCaseRanges() -> [[EnumCaseRange]] {
+        var indexedRanges: [Int: [EnumCaseRange]] = [:]
+
+        forEach(.keyword("case")) { i, _ in
+            guard isEnumCase(at: i) else { return }
+
+            var idx = i
+            while
+                let starOfCaseRangeIdx = index(of: .identifier, after: idx),
+                lastSignificantKeyword(at: starOfCaseRangeIdx) == "case",
+                let lastCaseIndex = lastIndex(of: .keyword("case"), in: i ..< starOfCaseRangeIdx),
+                lastCaseIndex == i,
+                let endOfCaseRangeIdx = index(
+                    after: starOfCaseRangeIdx,
+                    where: { $0 == .delimiter(",") || $0.isLinebreak }
+                ),
+                let endOfCaseRangeToken = token(at: endOfCaseRangeIdx)
+            {
+                let startOfScopeIdx = index(of: .startOfScope, before: starOfCaseRangeIdx) ?? 0
+
+                var indexedCase = indexedRanges[startOfScopeIdx, default: []]
+                indexedCase.append(
+                    EnumCaseRange(
+                        value: starOfCaseRangeIdx ..< endOfCaseRangeIdx,
+                        endOfCaseRangeToken: endOfCaseRangeToken
+                    )
+                )
+                indexedRanges[startOfScopeIdx] = indexedCase
+
+                idx = endOfCaseRangeIdx
+            }
+        }
+
+        return Array(indexedRanges.values)
+    }
 }
 
 extension _FormatRules {
@@ -1937,6 +2138,7 @@ extension Token {
             "import", "let", "var", "typealias", "func", "enum", "case",
             "struct", "class", "actor", "protocol", "init", "deinit",
             "extension", "subscript", "operator", "precedencegroup",
+            "associatedtype",
         ])
 
         for keywordToExclude in keywordsToExclude {

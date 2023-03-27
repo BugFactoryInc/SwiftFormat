@@ -250,6 +250,15 @@ class CommandLineTests: XCTestCase {
 
     // MARK: help
 
+    func testOptionsHelpText() {
+        for option in Descriptors.all {
+            XCTAssertFalse(
+                option.help.contains("\n"),
+                "Help for option --\(option.argumentName) contains linebreak"
+            )
+        }
+    }
+
     func testHelpLineLength() {
         CLI.print = { message, _ in
             message.components(separatedBy: "\n").forEach { line in
@@ -463,6 +472,104 @@ class CommandLineTests: XCTestCase {
         XCTAssertEqual(CLI.run(in: projectDirectory.path, with: "stdin --lint --rules indent --header foo"), .ok)
     }
 
+    // MARK: reporter
+
+    func testJSONReporterEndToEnd() throws {
+        try withTmpFiles([
+            "foo.swift": "func foo() {\n}\n",
+        ]) { url in
+            CLI.print = { message, type in
+                switch type {
+                case .raw:
+                    XCTAssert(message.contains("\"rule_id\" : \"emptyBraces\""))
+                case .error, .warning:
+                    break
+                case .info, .success:
+                    break
+                case .content:
+                    XCTFail()
+                }
+            }
+            _ = processArguments([
+                "",
+                "--lint",
+                "--reporter",
+                "json",
+                url.path,
+            ], in: "")
+        }
+    }
+
+    func testJSONReporterInferredFromURL() throws {
+        let outputURL = try createTmpFile("report.json", contents: "")
+        try withTmpFiles([
+            "foo.swift": "func foo() {\n}\n",
+        ]) { url in
+            CLI.print = { _, _ in }
+            _ = processArguments([
+                "",
+                "--lint",
+                "--report",
+                outputURL.path,
+                url.path,
+            ], in: "")
+        }
+        let ouput = try String(contentsOf: outputURL)
+        XCTAssert(ouput.contains("\"rule_id\" : \"emptyBraces\""))
+    }
+
+    func testGithubActionsLogReporterEndToEnd() throws {
+        try withTmpFiles([
+            "foo.swift": "func foo() {\n}\n",
+        ]) { url in
+            CLI.print = { message, type in
+                switch type {
+                case .raw:
+                    XCTAssert(message.hasPrefix("::warning file=foo.swift,line=1::"))
+                case .error, .warning:
+                    break
+                case .info, .success:
+                    break
+                case .content:
+                    XCTFail()
+                }
+            }
+            _ = processArguments([
+                "",
+                "--lint",
+                "--reporter",
+                "github-actions-log",
+                url.path,
+            ],
+            environment: ["GITHUB_WORKSPACE": url.deletingLastPathComponent().path],
+            in: "")
+        }
+    }
+
+    func testGithubActionsLogReporterMisspelled() throws {
+        try withTmpFiles([
+            "foo.swift": "func foo() {\n}\n",
+        ]) { url in
+            CLI.print = { message, type in
+                switch type {
+                case .raw, .warning, .info:
+                    break
+                case .error:
+                    XCTAssert(message.contains("did you mean 'github-actions-log'?"))
+                case .content, .success:
+                    XCTFail()
+                }
+            }
+            _ = processArguments([
+                "",
+                "--lint",
+                "--reporter",
+                "github-action-log",
+                url.path,
+            ], in: "")
+        }
+    }
+
     // MARK: snapshot/regression tests
 
     func testRegressionSuite() {
@@ -470,7 +577,7 @@ class CommandLineTests: XCTestCase {
             Swift.print(message)
         }
         // NOTE: to update regression suite, run again without `--lint` argument
-        XCTAssertEqual(CLI.run(in: projectDirectory.path, with: "Snapshots --unexclude Snapshots --symlinks follow --cache ignore --lint"), .ok)
+        XCTAssertEqual(CLI.run(in: projectDirectory.path, with: "Sources,Tests,Snapshots --unexclude Snapshots --symlinks follow --cache ignore --lint"), .ok)
     }
 
     func testRegressionSuiteNotDisabled() throws {
@@ -479,7 +586,7 @@ class CommandLineTests: XCTestCase {
             commandLineTests.range(of: "testRegressionSuiteNotDisabled()")
         )
         XCTAssert(commandLineTests[..<range.lowerBound].contains("""
-        with: "Snapshots --unexclude Snapshots --symlinks follow --cache ignore --lint")
+        with: "Sources,Tests,Snapshots --unexclude Snapshots --symlinks follow --cache ignore --lint")
         """))
     }
 }

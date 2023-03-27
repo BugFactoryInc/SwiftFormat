@@ -8,6 +8,7 @@
 * [blankLinesAtStartOfScope](#blankLinesAtStartOfScope)
 * [blankLinesBetweenScopes](#blankLinesBetweenScopes)
 * [braces](#braces)
+* [conditionalAssignment](#conditionalAssignment)
 * [consecutiveBlankLines](#consecutiveBlankLines)
 * [consecutiveSpaces](#consecutiveSpaces)
 * [duplicateImports](#duplicateImports)
@@ -17,7 +18,9 @@
 * [extensionAccessControl](#extensionAccessControl)
 * [fileHeader](#fileHeader)
 * [genericExtensions](#genericExtensions)
+* [hoistAwait](#hoistAwait)
 * [hoistPatternLet](#hoistPatternLet)
+* [hoistTry](#hoistTry)
 * [indent](#indent)
 * [initCoderUnavailable](#initCoderUnavailable)
 * [leadingDelimiters](#leadingDelimiters)
@@ -86,7 +89,6 @@
 * [isEmpty](#isEmpty)
 * [markTypes](#markTypes)
 * [organizeDeclarations](#organizeDeclarations)
-* [preferDouble](#preferDouble)
 * [sortedSwitchCases](#sortedSwitchCases)
 * [wrapConditionalBodies](#wrapConditionalBodies)
 * [wrapEnumCases](#wrapEnumCases)
@@ -175,7 +177,7 @@ swift version is set to 4.1 or above.
 
 ## assertionFailures
 
-Changes all instances of assert(false, ...) to assertionFailure(...) 
+Changes all instances of assert(false, ...) to assertionFailure(...)
 and precondition(false, ...) to preconditionFailure(...).
 
 <details>
@@ -445,6 +447,41 @@ Option | Description
 </details>
 <br/>
 
+## conditionalAssignment
+
+Assign properties using if / switch expressions.
+
+<details>
+<summary>Examples</summary>
+
+```diff
+- let foo: String
+- if condition {
++ let foo = if condition {
+-     foo = "foo"
++     "foo"
+  } else {
+-     bar = "bar"
++     "bar"
+  }
+```
+
+```diff
+- let foo: String
+- switch condition {
++ let foo = switch condition {
+  case true:
+-     foo = "foo"
++     "foo"
+  case false:
+-     foo = "bar"
++     "bar"
+  }
+```
+
+</details>
+<br/>
+
 ## consecutiveBlankLines
 
 Replace consecutive blank lines with a single blank line.
@@ -676,6 +713,34 @@ Option | Description
 --- | ---
 `--header` | Header comments: "strip", "ignore", or the text you wish use
 
+<details>
+<summary>Examples</summary>
+
+You can use the following tokens in the text:
+
+Token | Description
+--- | ---
+`{file}` | File name
+`{year}` | Current year
+`{created}` | File creation date
+`{created.year}` | File creation year
+
+**Example**:
+
+`--header \n {file}\n\n Copyright © {created.year} CompanyName.\n`
+
+```diff
+- // SomeFile.swift
+
++ //
++ //  SomeFile.swift
++ //  Copyright © 2023 CompanyName.
++ //
+```
+
+</details>
+<br/>
+
 ## genericExtensions
 
 When extending generic types, use angle brackets (`extension Array<Foo>`)
@@ -683,10 +748,7 @@ instead of generic type constraints (`extension Array where Element == Foo`).
 
 Option | Description
 --- | ---
-`--generictypes` | Additional generic type definitions used by `genericExtensions`
-A semicolon-separated list of generic types and their generic
-parameters. For example:
-"LinkedList<Element>;Reducer<State, Action, Environment>"
+`--generictypes` | Semicolon-delimited list of generic types and type parameters
 
 <details>
 <summary>Examples</summary>
@@ -722,6 +784,30 @@ parameters. For example:
 </details>
 <br/>
 
+## hoistAwait
+
+Move inline `await` keyword(s) to start of expression.
+
+Option | Description
+--- | ---
+`--asynccapturing` | List of functions with async @autoclosure arguments
+
+<details>
+<summary>Examples</summary>
+
+```diff
+- greet(await forename, await surname)
++ await greet(forename, surname)
+```
+
+```diff
+- let foo = String(try await getFoo())
++ let foo = await String(try getFoo())
+```
+
+</details>
+<br/>
+
 ## hoistPatternLet
 
 Reposition `let` or `var` bindings within pattern.
@@ -746,6 +832,30 @@ Option | Description
 + if case let .foo(bar, baz) = quux {
     // inner foo
   }
+```
+
+</details>
+<br/>
+
+## hoistTry
+
+Move inline `try` keyword(s) to start of expression.
+
+Option | Description
+--- | ---
+`--throwcapturing` | List of functions with throwing @autoclosure arguments
+
+<details>
+<summary>Examples</summary>
+
+```diff
+- foo(try bar(), try baz())
++ try foo(bar(), baz())
+```
+
+```diff
+- let foo = String(try await getFoo())
++ let foo = try String(await getFoo())
 ```
 
 </details>
@@ -1084,10 +1194,6 @@ Option | Description
 
 </details>
 <br/>
-
-## preferDouble
-
-Replaces occurrences of CGFloat with Double when targeting Swift 5.5 and above.
 
 ## preferKeyPath
 
@@ -1445,6 +1551,23 @@ Remove unneeded `return` keyword.
 ```diff
 - array.filter { return $0.foo == bar }
 + array.filter { $0.foo == bar }
+
+  // Swift 5.1+ (SE-0255)
+  var foo: String {
+-     return "foo"
++     "foo"
+  }
+
+  // Swift 5.8+ (SE-0380)
+  func foo(_ condition: Bool) -> String {
+      if condition {
+-         return "foo"
++         "foo"
+      } else {
+-         return "bar"
++         "bar"
+      }
+  }
 ```
 
 </details>
@@ -1535,6 +1658,23 @@ Option | Description
 +         let view = UIView()
       }
   }
+
+// Swift 5.8+, inferred (SE-0380)
+- let foo: Foo = if condition {
++ let foo = if condition {
+      Foo("foo")
+  } else {
+      Foo("bar")
+  }
+
+// Swift 5.8+, explicit (SE-0380)
+  let foo: Foo = if condition {
+-     Foo("foo")
++     .init("foo")
+  } else {
+-     Foo("bar")
++     .init("foo")
+  }
 ```
 
 </details>
@@ -1615,7 +1755,7 @@ and declarations between // swiftformat:sort:begin and
 -         barConfiguration: Bar)
 +     case barFeature
 +     case fooFeature
-+     case upsellA
++     case upsellA(
 +         fooConfiguration: Foo,
 +         barConfiguration: Bar)
 +     case upsellB
@@ -1631,7 +1771,7 @@ and declarations between // swiftformat:sort:begin and
 -         barConfiguration: Bar)
 +     case barFeature
 +     case fooFeature
-+     case upsellA
++     case upsellA(
 +         fooConfiguration: Foo,
 +         barConfiguration: Bar)
 +     case upsellB
@@ -1770,6 +1910,7 @@ Option | Description
 `--operatorfunc` | Spacing for operator funcs: "spaced" (default) or "no-space"
 `--nospaceoperators` | Comma-delimited list of operators without surrounding space
 `--ranges` | Spacing for ranges: "spaced" (default) or "no-space"
+`--typedelimiter` | "trailing" (default) or "leading-trailing"
 
 <details>
 <summary>Examples</summary>
@@ -2152,8 +2293,8 @@ Option | Description
 `--wrapreturntype` | Wrap return type: "if-multiline", "preserve" (default)
 `--wrapconditions` | Wrap conditions: "before-first", "after-first", "preserve"
 `--wraptypealiases` | Wrap typealiases: "before-first", "after-first", "preserve"
-`--conditionswrap` | Wrap conditions as Xcode 12:"auto", "always", "disabled"
 `--wrapeffects` | Wrap effects: "if-multiline", "never", "preserve"
+`--conditionswrap` | Wrap conditions as Xcode 12:"auto", "always", "disabled"
 
 <details>
 <summary>Examples</summary>
@@ -2306,6 +2447,10 @@ Wrap the bodies of inline conditional statements onto a new line.
 ## wrapEnumCases
 
 Writes one enum case per line.
+
+Option | Description
+--- | ---
+`--wrapenumcases` | Wrap enum cases: "always" (default) or "with-values"
 
 <details>
 <summary>Examples</summary>

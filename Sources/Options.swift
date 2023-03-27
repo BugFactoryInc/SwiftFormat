@@ -83,6 +83,12 @@ public enum WrapMode: String, CaseIterable {
     }
 }
 
+/// Wrap enum cases
+public enum WrapEnumCases: String, CaseIterable {
+    case always
+    case withValues = "with-values"
+}
+
 /// Argument type for stripping
 public enum ArgumentStrippingMode: String, CaseIterable {
     case unnamedOnly = "unnamed-only"
@@ -348,6 +354,12 @@ public enum EnumNamespacesMode: String, CaseIterable {
     case structsOnly = "structs-only"
 }
 
+/// Whether or not to add spacing around data type delimiter
+public enum SpaceAroundDelimiter: String, CaseIterable {
+    case trailing
+    case leadingTrailing = "leading-trailing"
+}
+
 /// Configuration options for formatting. These aren't actually used by the
 /// Formatter class itself, but it makes them available to the format rules.
 public struct FormatOptions: CustomStringConvertible {
@@ -370,6 +382,7 @@ public struct FormatOptions: CustomStringConvertible {
     public var wrapParameters: WrapMode
     public var wrapCollections: WrapMode
     public var wrapTypealiases: WrapMode
+    public var wrapEnumCases: WrapEnumCases
     public var closingParenOnSameLine: Bool
     public var wrapReturnType: WrapReturnType
     public var wrapConditions: WrapMode
@@ -389,6 +402,8 @@ public struct FormatOptions: CustomStringConvertible {
     public var guardElsePosition: ElsePosition
     public var explicitSelf: SelfMode
     public var selfRequired: Set<String>
+    public var throwCapturing: Set<String>
+    public var asyncCapturing: Set<String>
     public var experimentalRules: Bool
     public var importGrouping: ImportGrouping
     public var trailingClosures: Set<String>
@@ -431,6 +446,7 @@ public struct FormatOptions: CustomStringConvertible {
     public var genericTypes: String
     public var useSomeAny: Bool
     public var wrapEffects: WrapEffects
+    public var spaceAroundDelimiter: SpaceAroundDelimiter
 
     // Deprecated
     public var indentComments: Bool
@@ -467,6 +483,7 @@ public struct FormatOptions: CustomStringConvertible {
                 wrapParameters: WrapMode = .default,
                 wrapCollections: WrapMode = .preserve,
                 wrapTypealiases: WrapMode = .preserve,
+                wrapEnumCases: WrapEnumCases = .always,
                 closingParenOnSameLine: Bool = false,
                 wrapReturnType: WrapReturnType = .preserve,
                 wrapConditions: WrapMode = .preserve,
@@ -486,6 +503,8 @@ public struct FormatOptions: CustomStringConvertible {
                 guardElsePosition: ElsePosition = .auto,
                 explicitSelf: SelfMode = .remove,
                 selfRequired: Set<String> = [],
+                throwCapturing: Set<String> = [],
+                asyncCapturing: Set<String> = [],
                 experimentalRules: Bool = false,
                 importGrouping: ImportGrouping = .alpha,
                 trailingClosures: Set<String> = [],
@@ -533,7 +552,8 @@ public struct FormatOptions: CustomStringConvertible {
                 ignoreConflictMarkers: Bool = false,
                 swiftVersion: Version = .undefined,
                 fileInfo: FileInfo = FileInfo(),
-                timeout: TimeInterval = 1)
+                timeout: TimeInterval = 1,
+                spaceAroundDelimiter: SpaceAroundDelimiter = .trailing)
     {
         self.lineAfterMarks = lineAfterMarks
         self.indent = indent
@@ -555,6 +575,7 @@ public struct FormatOptions: CustomStringConvertible {
         self.wrapParameters = wrapParameters
         self.wrapCollections = wrapCollections
         self.wrapTypealiases = wrapTypealiases
+        self.wrapEnumCases = wrapEnumCases
         self.closingParenOnSameLine = closingParenOnSameLine
         self.wrapReturnType = wrapReturnType
         self.wrapConditions = wrapConditions
@@ -574,6 +595,8 @@ public struct FormatOptions: CustomStringConvertible {
         self.guardElsePosition = guardElsePosition
         self.explicitSelf = explicitSelf
         self.selfRequired = selfRequired
+        self.throwCapturing = throwCapturing
+        self.asyncCapturing = asyncCapturing
         self.experimentalRules = experimentalRules
         self.importGrouping = importGrouping
         self.trailingClosures = trailingClosures
@@ -616,6 +639,7 @@ public struct FormatOptions: CustomStringConvertible {
         self.genericTypes = genericTypes
         self.useSomeAny = useSomeAny
         self.wrapEffects = wrapEffects
+        self.spaceAroundDelimiter = spaceAroundDelimiter
         // Doesn't really belong here, but hard to put elsewhere
         self.fragment = fragment
         self.ignoreConflictMarkers = ignoreConflictMarkers
@@ -696,23 +720,27 @@ public struct Options {
     public var fileOptions: FileOptions?
     public var formatOptions: FormatOptions?
     public var rules: Set<String>?
+    public var configURL: URL?
     public var lint: Bool
 
     public static let `default` = Options(
         fileOptions: .default,
         formatOptions: .default,
         rules: Set(FormatRules.byName.keys).subtracting(FormatRules.disabledByDefault),
+        configURL: nil,
         lint: false
     )
 
     public init(fileOptions: FileOptions? = nil,
                 formatOptions: FormatOptions? = nil,
                 rules: Set<String>? = nil,
+                configURL: URL? = nil,
                 lint: Bool = false)
     {
         self.fileOptions = fileOptions
         self.formatOptions = formatOptions
         self.rules = rules
+        self.configURL = configURL
         self.lint = lint
     }
 

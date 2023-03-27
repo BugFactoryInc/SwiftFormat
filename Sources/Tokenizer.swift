@@ -2,7 +2,7 @@
 //  Tokenizer.swift
 //  SwiftFormat
 //
-//  Version 0.50.3
+//  Version 0.51.2
 //
 //  Created by Nick Lockwood on 11/08/2016.
 //  Copyright 2016 Nick Lockwood
@@ -383,6 +383,13 @@ public extension Token {
     var isSpaceOrCommentOrLinebreak: Bool { isSpaceOrComment || isLinebreak }
     var isCommentOrLinebreak: Bool { isComment || isLinebreak }
 
+    var isSwitchCaseOrDefault: Bool {
+        if case let .endOfScope(string) = self {
+            return ["case", "default"].contains(string)
+        }
+        return false
+    }
+
     func isOperator(_ string: String) -> Bool {
         if case .operator(string, _) = self {
             return true
@@ -521,6 +528,12 @@ extension Token {
         default:
             return false
         }
+    }
+}
+
+extension Collection where Element == Token {
+    var string: String {
+        map { $0.string }.joined()
     }
 }
 
@@ -812,12 +825,8 @@ private extension UnicodeScalarView {
         var start = self
         if var tail = readCharacter(where: isHead) {
             switch tail {
-            case "?", "!", "\\":
+            case "/" where !["*", "/"].contains(first), "?", "!", "\\":
                 return .operator(String(tail), .none)
-            case "/":
-                if first == "\\" {
-                    return .operator("/", .none)
-                }
             default:
                 start = self
             }
@@ -1502,9 +1511,14 @@ public func tokenize(_ source: String) -> [Token] {
                     break
                 }
                 if token == .operator("/", .none),
-                   prevNonSpaceToken.isOperator(ofType: .infix) || [
+                   prevNonSpaceToken.isOperator(ofType: .infix) || (
+                       prevNonSpaceToken.isUnwrapOperator &&
+                           prevNonSpaceIndex > 0 &&
+                           tokens[prevNonSpaceIndex - 1] == .keyword("try")
+                   ) || [
                        .startOfScope("("), .startOfScope("["),
                        .delimiter(":"), .delimiter(","),
+                       .keyword("try"), .keyword("await"),
                    ].contains(prevNonSpaceToken)
                 {
                     tokens[i] = .startOfScope("/")

@@ -80,6 +80,72 @@ class IndentTests: RulesTests {
         testFormatting(for: input, output, rule: FormatRules.indent)
     }
 
+    func testIndentPreservedForNestedWrappedParameters() {
+        let input = """
+        let loginResponse = LoginResponse(status: .success(.init(accessToken: session,
+                                                                 status: .enabled)),
+                                          invoicingURL: .invoicing,
+                                          paymentFormURL: .paymentForm)
+        """
+        let options = FormatOptions(wrapParameters: .preserve)
+        testFormatting(for: input, rule: FormatRules.indent, options: options)
+    }
+
+    func testIndentPreservedForNestedWrappedParameters2() {
+        let input = """
+        let loginResponse = LoginResponse(status: .success(.init(accessToken: session,
+                                                                 status: .enabled),
+                                                           invoicingURL: .invoicing,
+                                                           paymentFormURL: .paymentForm))
+        """
+        let options = FormatOptions(wrapParameters: .preserve)
+        testFormatting(for: input, rule: FormatRules.indent, options: options)
+    }
+
+    func testIndentPreservedForNestedWrappedParameters3() {
+        let input = """
+        let loginResponse = LoginResponse(
+            status: .success(.init(accessToken: session,
+                                   status: .enabled),
+                             invoicingURL: .invoicing,
+                             paymentFormURL: .paymentForm)
+        )
+        """
+        let options = FormatOptions(wrapParameters: .preserve)
+        testFormatting(for: input, rule: FormatRules.indent, options: options)
+    }
+
+    func testIndentTrailingClosureInParensContainingUnwrappedArguments() {
+        let input = """
+        let foo = bar(baz {
+            quux(foo, bar)
+        })
+        """
+        testFormatting(for: input, rule: FormatRules.indent)
+    }
+
+    func testIndentTrailingClosureInParensContainingWrappedArguments() {
+        let input = """
+        let foo = bar(baz {
+            quux(foo,
+                 bar)
+        })
+        """
+        testFormatting(for: input, rule: FormatRules.indent)
+    }
+
+    func testIndentTrailingClosureInParensContainingWrappedArguments2() {
+        let input = """
+        let foo = bar(baz {
+            quux(
+                foo,
+                bar
+            )
+        })
+        """
+        testFormatting(for: input, rule: FormatRules.indent)
+    }
+
     func testIndentImbalancedNestedClosingParens() {
         let input = """
         Foo(bar:
@@ -1479,7 +1545,7 @@ class IndentTests: RulesTests {
         """
         let options = FormatOptions(wrapArguments: .disabled, closingParenOnSameLine: true)
         testFormatting(for: input, rule: FormatRules.indent, options: options,
-                       exclude: ["wrapConditionalBodies"])
+                       exclude: ["wrapConditionalBodies", "wrapMultilineStatementBraces"])
     }
 
     func testDoubleIndentTrailingClosureBody() {
@@ -1510,7 +1576,8 @@ class IndentTests: RulesTests {
         }
         """
         let options = FormatOptions(wrapArguments: .disabled, closingParenOnSameLine: true)
-        testFormatting(for: input, rule: FormatRules.indent, options: options)
+        testFormatting(for: input, rule: FormatRules.indent, options: options,
+                       exclude: ["wrapMultilineStatementBraces"])
     }
 
     func testNoDoubleIndentTrailingClosureBodyIfLineStartsWithClosingBrace() {

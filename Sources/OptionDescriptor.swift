@@ -446,6 +446,12 @@ struct _Descriptors {
         help: "Wrap all arguments: \"before-first\", \"after-first\", \"preserve\"",
         keyPath: \.wrapArguments
     )
+    let wrapEnumCases = OptionDescriptor(
+        argumentName: "wrapenumcases",
+        displayName: "Wrap Enum Cases",
+        help: "Wrap enum cases: \"always\" (default) or \"with-values\"",
+        keyPath: \.wrapEnumCases
+    )
     let wrapParameters = OptionDescriptor(
         argumentName: "wrapparameters",
         displayName: "Wrap Parameters",
@@ -598,6 +604,18 @@ struct _Descriptors {
         help: "Comma-delimited list of functions with @autoclosure arguments",
         keyPath: \FormatOptions.selfRequired
     )
+    let throwCapturing = OptionDescriptor(
+        argumentName: "throwcapturing",
+        displayName: "Throw Capturing",
+        help: "List of functions with throwing @autoclosure arguments",
+        keyPath: \FormatOptions.throwCapturing
+    )
+    let asyncCapturing = OptionDescriptor(
+        argumentName: "asynccapturing",
+        displayName: "Async Capturing",
+        help: "List of functions with async @autoclosure arguments",
+        keyPath: \FormatOptions.asyncCapturing
+    )
     let importGrouping = OptionDescriptor(
         argumentName: "importgrouping",
         displayName: "Import Grouping",
@@ -677,6 +695,12 @@ struct _Descriptors {
                 break
             }
         }
+    )
+    let spaceAroundDelimiter = OptionDescriptor(
+        argumentName: "typedelimiter",
+        displayName: "Spacing around delimiter",
+        help: "\"trailing\" (default) or \"leading-trailing\"",
+        keyPath: \.spaceAroundDelimiter
     )
     let spaceAroundRangeOperators = OptionDescriptor(
         argumentName: "ranges",
@@ -898,12 +922,7 @@ struct _Descriptors {
     let genericTypes = OptionDescriptor(
         argumentName: "generictypes",
         displayName: "Additional generic types",
-        help: """
-        Additional generic type definitions used by `genericExtensions`
-        A semicolon-separated list of generic types and their generic
-        parameters. For example:
-        "LinkedList<Element>;Reducer<State, Action, Environment>"
-        """,
+        help: "Semicolon-delimited list of generic types and type parameters",
         keyPath: \.genericTypes,
         fromArgument: { $0 },
         toArgument: { $0 }
