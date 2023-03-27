@@ -2,7 +2,7 @@
 //  Formatter.swift
 //  SwiftFormat
 //
-//  Version 0.50.3
+//  Version 0.51.2
 //
 //  Created by Nick Lockwood on 12/08/2016.
 //  Copyright 2016 Nick Lockwood
@@ -192,10 +192,10 @@ public class Formatter: NSObject {
     private let trackChanges: Bool
 
     private func trackChange(at index: Int) {
-        guard trackChanges, let rule = currentRule else { return }
+        guard trackChanges else { return }
         changes.append(Change(
             line: originalLine(at: index),
-            rule: rule,
+            rule: currentRule ?? .none,
             filePath: options.fileInfo.filePath
         ))
     }
@@ -439,9 +439,7 @@ public extension Formatter {
                 if case .linebreak = token, scopeStack.isEmpty, matches(token) {
                     return i
                 }
-            } else if token == .endOfScope("case") || token == .endOfScope("default"),
-                      scopeStack.last == .startOfScope("#if")
-            {
+            } else if token.isSwitchCaseOrDefault, scopeStack.last == .startOfScope("#if") {
                 continue
             } else if scopeStack.isEmpty, matches(token) {
                 return i

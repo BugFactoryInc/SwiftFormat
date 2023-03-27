@@ -342,6 +342,30 @@ private struct Examples {
     ```
     """
 
+    let hoistAwait = """
+    ```diff
+    - greet(await forename, await surname)
+    + await greet(forename, surname)
+    ```
+
+    ```diff
+    - let foo = String(try await getFoo())
+    + let foo = await String(try getFoo())
+    ```
+    """
+
+    let hoistTry = """
+    ```diff
+    - foo(try bar(), try baz())
+    + try foo(bar(), baz())
+    ```
+
+    ```diff
+    - let foo = String(try await getFoo())
+    + let foo = try String(await getFoo())
+    ```
+    """
+
     let indent = """
     ```diff
       if x {
@@ -597,6 +621,23 @@ private struct Examples {
     ```diff
     - array.filter { return $0.foo == bar }
     + array.filter { $0.foo == bar }
+
+      // Swift 5.1+ (SE-0255)
+      var foo: String {
+    -     return "foo"
+    +     "foo"
+      }
+
+      // Swift 5.8+ (SE-0380)
+      func foo(_ condition: Bool) -> String {
+          if condition {
+    -         return "foo"
+    +         "foo"
+          } else {
+    -         return "bar"
+    +         "bar"
+          }
+      }
     ```
     """
 
@@ -835,6 +876,23 @@ private struct Examples {
     -         let view: UIView = UIView()
     +         let view = UIView()
           }
+      }
+
+    // Swift 5.8+, inferred (SE-0380)
+    - let foo: Foo = if condition {
+    + let foo = if condition {
+          Foo("foo")
+      } else {
+          Foo("bar")
+      }
+
+    // Swift 5.8+, explicit (SE-0380)
+      let foo: Foo = if condition {
+    -     Foo("foo")
+    +     .init("foo")
+      } else {
+    -     Foo("bar")
+    +     .init("foo")
       }
     ```
     """
@@ -1377,7 +1435,7 @@ private struct Examples {
     -         barConfiguration: Bar)
     +     case barFeature
     +     case fooFeature
-    +     case upsellA
+    +     case upsellA(
     +         fooConfiguration: Foo,
     +         barConfiguration: Bar)
     +     case upsellB
@@ -1393,7 +1451,7 @@ private struct Examples {
     -         barConfiguration: Bar)
     +     case barFeature
     +     case fooFeature
-    +     case upsellA
+    +     case upsellA(
     +         fooConfiguration: Foo,
     +         barConfiguration: Bar)
     +     case upsellB
@@ -1486,6 +1544,57 @@ private struct Examples {
     -         /// TODO: implement Foo.bar() algorithm
     +         // TODO: implement Foo.bar() algorithm
           }
+      }
+    ```
+    """
+
+    let fileHeader = """
+    You can use the following tokens in the text:
+
+    Token | Description
+    --- | ---
+    `{file}` | File name
+    `{year}` | Current year
+    `{created}` | File creation date
+    `{created.year}` | File creation year
+
+    **Example**:
+
+    `--header \\n {file}\\n\\n Copyright © {created.year} CompanyName.\\n`
+
+    ```diff
+    - // SomeFile.swift
+
+    + //
+    + //  SomeFile.swift
+    + //  Copyright © 2023 CompanyName.
+    + //
+    ```
+    """
+
+    let conditionalAssignment = """
+    ```diff
+    - let foo: String
+    - if condition {
+    + let foo = if condition {
+    -     foo = "foo"
+    +     "foo"
+      } else {
+    -     bar = "bar"
+    +     "bar"
+      }
+    ```
+
+    ```diff
+    - let foo: String
+    - switch condition {
+    + let foo = switch condition {
+      case true:
+    -     foo = "foo"
+    +     "foo"
+      case false:
+    -     foo = "bar"
+    +     "bar"
       }
     ```
     """

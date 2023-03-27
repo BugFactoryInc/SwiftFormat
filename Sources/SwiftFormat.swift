@@ -32,7 +32,7 @@
 import Foundation
 
 /// The current SwiftFormat version
-let swiftFormatVersion = "0.50.3"
+let swiftFormatVersion = "0.51.2"
 public let version = swiftFormatVersion
 
 /// The standard SwiftFormat config file name
@@ -44,7 +44,7 @@ public let swiftVersionFile = ".swift-version"
 /// Supported Swift versions
 public let swiftVersions = [
     "3.x", "4.0", "4.1", "4.2",
-    "5.0", "5.1", "5.2", "5.3", "5.4", "5.5", "5.6", "5.7", "5.8",
+    "5.0", "5.1", "5.2", "5.3", "5.4", "5.5", "5.6", "5.7", "5.8", "5.9",
 ]
 
 /// An enumeration of the types of error that may be thrown by SwiftFormat
@@ -124,7 +124,7 @@ public func enumerateFiles(withInputURL inputURL: URL,
         if options.shouldSkipFile(inputURL) {
             if let handler = skipped {
                 do {
-                    onComplete(try handler(inputURL, inputURL, options))
+                    try onComplete(handler(inputURL, inputURL, options))
                 } catch {
                     onComplete { throw error }
                 }
@@ -142,7 +142,7 @@ public func enumerateFiles(withInputURL inputURL: URL,
                         return resolveInputURL(resolvedURL, options: options)
                     } else {
                         if let handler = skipped {
-                            onComplete(try handler(inputURL, inputURL, options))
+                            try onComplete(handler(inputURL, inputURL, options))
                         }
                         return nil
                     }
@@ -154,7 +154,7 @@ public func enumerateFiles(withInputURL inputURL: URL,
                     return resolveInputURL(resolvedURL, options: options)
                 } else {
                     if let handler = skipped {
-                        onComplete(try handler(inputURL, inputURL, options))
+                        try onComplete(handler(inputURL, inputURL, options))
                     }
                     return nil
                 }
@@ -186,7 +186,7 @@ public func enumerateFiles(withInputURL inputURL: URL,
                 var options = options
                 options.formatOptions?.fileInfo = fileInfo
                 do {
-                    onComplete(try handler(inputURL, outputURL ?? inputURL, options))
+                    try onComplete(handler(inputURL, outputURL ?? inputURL, options))
                 } catch {
                     onComplete { throw error }
                 }
@@ -278,9 +278,15 @@ private func processDirectory(_ inputURL: URL, with options: inout Options, logg
     let manager = FileManager.default
     let configFile = inputURL.appendingPathComponent(swiftFormatConfigurationFile)
     if manager.fileExists(atPath: configFile.path) {
-        logger?("Reading config file at \(configFile.path)")
-        let data = try Data(contentsOf: configFile)
-        args = try parseConfigFile(data)
+        if let configURL = options.configURL {
+            if configURL.standardizedFileURL != configFile.standardizedFileURL {
+                logger?("Ignoring config file at \(configFile.path)")
+            }
+        } else {
+            logger?("Reading config file at \(configFile.path)")
+            let data = try Data(contentsOf: configFile)
+            args = try parseConfigFile(data)
+        }
     }
     let versionFile = inputURL.appendingPathComponent(swiftVersionFile)
     if manager.fileExists(atPath: versionFile.path) {
@@ -301,7 +307,7 @@ private func processDirectory(_ inputURL: URL, with options: inout Options, logg
         configCache[inputURL] = args
     }
     assert(options.formatOptions != nil)
-    try options.addArguments(args, in: inputURL.path)
+    try options.addArguments(args, in: inputURL.standardizedFileURL.path)
 }
 
 /// Line and column offset in source
@@ -437,12 +443,12 @@ public func applyRules(_ rules: [FormatRule],
                        trackChanges: Bool,
                        range: Range<Int>?) throws -> (tokens: [Token], changes: [Formatter.Change])
 {
-    return try applyRules(rules,
-                          to: originalTokens,
-                          with: options,
-                          trackChanges: trackChanges,
-                          range: range,
-                          callback: nil)
+    try applyRules(rules,
+                   to: originalTokens,
+                   with: options,
+                   trackChanges: trackChanges,
+                   range: range,
+                   callback: nil)
 }
 
 private func applyRules(
@@ -500,13 +506,15 @@ private func applyRules(
     // Split tokens into lines
     func lines(in tokens: [Token]) -> [Int: ArraySlice<Token>?] {
         var lines: [Int: ArraySlice<Token>?] = [:]
-        var start = 0
+        var start = 0, nextLine = 1
         for (i, token) in tokens.enumerated() {
             if case let .linebreak(_, line) = token {
                 lines[line] = tokens[start ..< i]
+                nextLine = line + 1
                 start = i + 1
             }
         }
+        lines[nextLine] = tokens[start...]
         return lines
     }
 
@@ -547,7 +555,7 @@ private func applyRules(
             let newLines = lines(in: tokens)
             // Filter out duplicates and lines that haven't changed
             var last: Formatter.Change?
-            return (tokens, changes.filter { change in
+            changes = changes.filter { change in
                 if last == change {
                     return false
                 }
@@ -556,7 +564,8 @@ private func applyRules(
                     return false
                 }
                 return true
-            })
+            }
+            return (tokens, changes)
         }
         tokens = formatter.tokens
         rules.removeAll(where: { $0.runOnceOnly }) // Prevents infinite recursion
@@ -580,7 +589,7 @@ public func format(
 ) throws -> String {
     let tokens = tokenize(source)
     let range = lineRange.map { tokenRange(forLineRange: $0, in: tokens) }
-    return sourceCode(for: try format(tokens, rules: rules, options: options, range: range))
+    return try sourceCode(for: format(tokens, rules: rules, options: options, range: range))
 }
 
 /// Lint a pre-parsed token array

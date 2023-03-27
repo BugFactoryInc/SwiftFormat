@@ -198,6 +198,7 @@ func printHelp(as type: CLI.OutputType) {
     --dryrun           Run in "dry" mode (without actually changing any files)
     --lint             Return an error for unformatted input, and list violations
     --report           Path to a file where --lint output should be written
+    --reporter         Report format: \(Reporters.help)
     --lenient          Suppress errors for unformatted code in --lint mode
     --verbose          Display detailed formatting output and warnings/errors
     --quiet            Disables non-critical output messages and warnings
@@ -292,9 +293,33 @@ func processArguments(_ args: [String], environment: [String: String] = [:], in 
             print("warning: \(warning)", as: .warning)
         }
 
-        // Report output
-        let reporter = args["report"].map {
-            JSONReporter(outputURL: URL(fileURLWithPath: $0))
+        // Reporter
+        var reporter: Reporter? = try args["reporter"].map { identifier in
+            guard let reporter = Reporters.reporter(
+                named: identifier,
+                environment: environment
+            ) else {
+                var message = "'\(identifier)' is not a valid reporter"
+                let names = Reporters.all.map { $0.name }
+                if let match = identifier.bestMatches(in: names).first {
+                    message += "(did you mean '\(match)'?)"
+                }
+                throw FormatError.options(message)
+            }
+            return reporter
+        }
+
+        // Report URL
+        let reportURL: URL? = try args["report"].map { arg in
+            let url = try parsePath(arg, for: "--output", in: directory)
+            if reporter == nil {
+                reporter = Reporters.reporter(for: url, environment: environment)
+                guard reporter != nil else {
+                    throw FormatError
+                        .options("--report requires --reporter to be specified")
+                }
+            }
+            return url
         }
 
         // Show help
@@ -486,6 +511,10 @@ func processArguments(_ args: [String], environment: [String: String] = [:], in 
                 print("warning: --output argument is unused when running in --lint mode", as: .warning)
             }
             return try parsePath(arg, for: "--output", in: directory)
+        }
+
+        guard !useStdout || (reporter == nil || reportURL != nil) else {
+            throw FormatError.options("--report file must be specified when --output is stdout")
         }
 
         // Source range
@@ -731,8 +760,13 @@ func processArguments(_ args: [String], environment: [String: String] = [:], in 
             print("warning: No eligible files found at \(inputPaths).", as: .warning)
         }
         if let reporter = reporter {
-            print("Writing report file to \(reporter.outputURL.path)")
-            try reporter.write()
+            let reporterOutput = try reporter.write()
+            if let reportURL = reportURL {
+                print("Writing report file to \(reportURL.path)")
+                try reporterOutput.write(to: reportURL, options: .atomic)
+            } else {
+                print(String(decoding: reporterOutput, as: UTF8.self), as: .raw)
+            }
         }
         print("SwiftFormat completed in \(time).", as: .success)
         return printResult(dryrun, lint, lenient, outputFlags)
@@ -838,7 +872,7 @@ func computeHash(_ source: String) -> String {
 }
 
 func applyRules(_ source: String, options: Options, lineRange: ClosedRange<Int>?,
-                verbose: Bool, lint: Bool, reporter: JSONReporter?) throws -> String
+                verbose: Bool, lint: Bool, reporter: Reporter?) throws -> String
 {
     // Parse source
     var tokens = tokenize(source)
@@ -893,7 +927,7 @@ func processInput(_ inputURLs: [URL],
                   dryrun: Bool,
                   lint: Bool,
                   cacheURL: URL?,
-                  reporter: JSONReporter?) -> (OutputFlags, [Error])
+                  reporter: Reporter?) -> (OutputFlags, [Error])
 {
     // Load cache
     let cacheDirectory = cacheURL?.deletingLastPathComponent().absoluteURL

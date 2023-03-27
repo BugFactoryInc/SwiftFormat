@@ -1210,6 +1210,19 @@ class WrappingTests: RulesTests {
         testFormatting(for: input, output, rule: FormatRules.wrap, options: options)
     }
 
+    func testErrorNotReportedOnBlankLineAfterWrap() throws {
+        let input = """
+        [
+            abagdiasiudbaisndoanosdasdasdasdasdnaosnooanso(),
+
+            bar(),
+        ]
+        """
+        let options = FormatOptions(truncateBlankLines: false, maxWidth: 40)
+        let changes = try lint(input, rules: [FormatRules.wrap, FormatRules.indent], options: options)
+        XCTAssertEqual(changes, [.init(line: 2, rule: FormatRules.wrap, filePath: nil)])
+    }
+
     // MARK: - wrapArguments
 
     func testIndentFirstElementWhenApplyingWrap() {
@@ -3268,10 +3281,18 @@ class WrappingTests: RulesTests {
         ], options: options)
     }
 
-    func testMultilineBraceNotAppliedToTrailingClosure_wrapAfterFirst() {
+    func testMultilineBraceAppliedToTrailingClosure_wrapAfterFirst() {
         let input = """
         UIView.animate(duration: 10,
                        options: []) {
+            print()
+        }
+        """
+
+        let output = """
+        UIView.animate(duration: 10,
+                       options: [])
+        {
             print()
         }
         """
@@ -3280,7 +3301,7 @@ class WrappingTests: RulesTests {
             wrapArguments: .afterFirst,
             closingParenOnSameLine: true
         )
-        testFormatting(for: input, rule: FormatRules.wrapMultilineStatementBraces,
+        testFormatting(for: input, output, rule: FormatRules.wrapMultilineStatementBraces,
                        options: options, exclude: ["indent"])
     }
 
@@ -4210,6 +4231,15 @@ class WrappingTests: RulesTests {
         testFormatting(for: input, output, rule: FormatRules.wrapAttributes, options: options)
     }
 
+    func testInlineMainActorAttributeNotWrapped() {
+        let input = """
+        var foo: @MainActor (Foo) -> Void
+        var bar: @MainActor (Bar) -> Void
+        """
+        let options = FormatOptions(varAttributes: .prevLine)
+        testFormatting(for: input, rule: FormatRules.wrapAttributes, options: options)
+    }
+
     // MARK: wrapEnumCases
 
     func testMultilineEnumCases() {
@@ -4288,6 +4318,66 @@ class WrappingTests: RulesTests {
         }
         """
         testFormatting(for: input, output, rule: FormatRules.wrapEnumCases)
+    }
+
+    func testEnumCasesIfValuesWithoutValuesDoesNothing() {
+        let input = """
+        enum Foo {
+            case bar, baz, quux
+        }
+        """
+        testFormatting(for: input, rule: FormatRules.wrapEnumCases,
+                       options: FormatOptions(wrapEnumCases: .withValues))
+    }
+
+    func testEnumCasesIfValuesWithRawValuesAndNestedEnum() {
+        let input = """
+        enum Foo {
+            case bar = 1, baz, quux
+
+            enum Foo2 {
+                case bar, baz, quux
+            }
+        }
+        """
+        let output = """
+        enum Foo {
+            case bar = 1
+            case baz
+            case quux
+
+            enum Foo2 {
+                case bar, baz, quux
+            }
+        }
+        """
+        testFormatting(
+            for: input,
+            output,
+            rule: FormatRules.wrapEnumCases,
+            options: FormatOptions(wrapEnumCases: .withValues)
+        )
+    }
+
+    func testEnumCasesIfValuesWithAssociatedValues() {
+        let input = """
+        enum Foo {
+            case bar(a: Int), baz, quux
+        }
+        """
+        let output = """
+        enum Foo {
+            case bar(a: Int)
+            case baz
+            case quux
+        }
+        """
+        testFormatting(
+            for: input,
+            output,
+            rule: FormatRules.wrapEnumCases,
+            options: FormatOptions(wrapEnumCases: .withValues)
+        )
     }
 
     func testEnumCasesWithCommentsAlreadyWrappedOntoMultipleLines() {

@@ -1,5 +1,78 @@
 # Change Log
 
+## [0.51.2](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.51.2) (2023-03-07)
+
+- Fixed `hoistTry` rule breaking multiline function chains
+- Added `--asynccapturing` and `--throwcapturing` options for `hoistTry` and `hoistAwait` rules
+- Fixed changes in last line of file not being correctly tracked
+
+## [0.51.1](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.51.1) (2023-03-02)
+
+- Fixed `redundantNilInit` removing required `nil` inside Result Builders
+- Fixed `redundantLet` removing required `let` inside Result Builder `switch/case` statements
+- Fixed `hoistTry` rule removing second `try` inside XCTAssert statements
+
+## [0.51.0](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.51.0) (2023-02-28)
+
+- Added `hoistAwait` and `hoistTry` rules to hoist inline `await`/`try` to start of expression
+- Extended `redundantPattern` rule to remove redundant `let` in patterns
+- The `wrapMultilineStatementBraces` rules is now applied more consistently
+- Updated `redundantReturn`/`Closure` rules to support `if`/`switch` expressions in Swift 5.8
+- Added `conditionalAssignment` rule to assign variables using `if`/`switch` expressions in Swift 5.8
+- Updated `redundantType` rule to support `if`/`switch` expression assignment Swift 5.8
+- Extended `redundantSelf` rule to support implicit `self` in eligible closures in Swift 5.8
+- SwiftFormat now ignores `.swiftformat` files when explicit `--config` file is provided
+- Added `--wrapenumcases with-values` option to only wrap enum cases with values
+- Added `--wrapeffects` option for wrapping function effects
+- Removed unsafe `preferDouble` rule
+
+## [0.50.9](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.9) (2023-02-16)
+
+- Added GitHub actions log reporter (see `--reporter` option for details)
+- Fixed bug where `redundantType` sometimes stripped in cases where it couldn't be inferred
+- The `redundantType` rule now supports removing type in more cases where supported
+- Made SwiftFormat for Xcode instructions dynamic according to OS version
+- Fixed bug where a trailing comma could be left behind by `opaqueGenericParameters` rule
+- Fixed bug where `wrapAttributes` rule sometimes wrapped inline attributes like `@MainActor`
+- Improved support for `// swiftformat:options` comment directives
+- Removed deprecated options from the example `.swiftformat` file
+
+## [0.50.8](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.8) (2023-01-29)
+
+- The `redundantBackticks` rule no longer removes required comments around `self`
+- Associated type headerdoc comments are now handles correctly by the `docComments` rule
+- Fixed mangled comments when using the `sortedSwitchCases` rule
+- Hex, octal or binary literals are now sorted correctly in `sortedSwitchCases` rule
+- Fixed regression in closed brace indentation (introduced in 0.50.7)
+- Fixed unsafe semicolon removal after inferred `var` properties
+- Added fileHeader placeholder documentation
+
+## [0.50.7](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.7) (2022-12-27)
+
+- Fixed parsing of regex literals preceded by `try` or `await`
+- Fixed required parens being removed around `await` keyword
+- Fixed indent for nested, wrapped parameters
+
+## [0.50.6](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.6) (2022-12-03)
+
+- Fixed regression in `fileHeader` rule where blank lines were removed after header
+- Fixed globs matching when command-line tool is invoked from a directory such as `/var/tmp`
+- Fixed bug in parsing regex literals beginning with `^` character
+
+## [0.50.5](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.5) (2022-11-29)
+
+- Fixed incorrect macOS command line binary that accidentally shipped with 0.50.4
+
+## [0.50.4](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.4) (2022-11-23)
+
+- Added Swift package command plugin
+- Added `docComments` rule to convert between regular and documentation comments
+- Fixed `redundantLet` rule incorrectly stripping `let` inside Result Builders
+- Fixed `void` rule in cases where `Void` has been locally shadowed
+- Fixed `fileHeader` rule when file only contains header comment
+- Fixed unexpected indent and spurious `wrap` warning for blank lines
+- Fixed parsing bug in `redundantSelf` rule
+
 ## [0.50.3](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.50.3) (2022-10-19)
 
 - Fixed bug where `redundantFileprivate` rule could break Array extensions using type sugar

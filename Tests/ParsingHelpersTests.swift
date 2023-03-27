@@ -550,6 +550,13 @@ class ParsingHelpersTests: XCTestCase {
         XCTAssert(formatter.isStartOfClosure(at: 6))
     }
 
+    func testTrailingClosureOnOptionalMethod() {
+        let formatter = Formatter(tokenize("""
+        foo.bar? { print("") }
+        """))
+        XCTAssert(formatter.isStartOfClosure(at: 5))
+    }
+
     // MARK: isAccessorKeyword
 
     func testDidSet() {
@@ -1617,5 +1624,84 @@ class ParsingHelpersTests: XCTestCase {
             async()
         """))
         XCTAssertFalse(formatter.isStartOfStatement(at: 16))
+    }
+
+    // MARK: - parseTypes
+
+    func testParseSimpleType() {
+        let formatter = Formatter(tokenize("""
+        let foo: Foo = .init()
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "Foo")
+    }
+
+    func testParseOptionalType() {
+        let formatter = Formatter(tokenize("""
+        let foo: Foo? = .init()
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "Foo?")
+    }
+
+    func testParseIOUType() {
+        let formatter = Formatter(tokenize("""
+        let foo: Foo! = .init()
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "Foo!")
+    }
+
+    func testParseGenericType() {
+        let formatter = Formatter(tokenize("""
+        let foo: Foo<Bar, Baaz> = .init()
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "Foo<Bar, Baaz>")
+    }
+
+    func testParseOptionalGenericType() {
+        let formatter = Formatter(tokenize("""
+        let foo: Foo<Bar, Baaz>? = .init()
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "Foo<Bar, Baaz>?")
+    }
+
+    func testParseDictionaryType() {
+        let formatter = Formatter(tokenize("""
+        let foo: [Foo: Bar] = [:]
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "[Foo: Bar]")
+    }
+
+    func testParseOptionalDictionaryType() {
+        let formatter = Formatter(tokenize("""
+        let foo: [Foo: Bar]? = [:]
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "[Foo: Bar]?")
+    }
+
+    func testParseTupleType() {
+        let formatter = Formatter(tokenize("""
+        let foo: (Foo, Bar) = (Foo(), Bar())
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "(Foo, Bar)")
+    }
+
+    func testParseClosureType() {
+        let formatter = Formatter(tokenize("""
+        let foo: (Foo, Bar) -> (Foo, Bar) = { foo, bar in (foo, bar) }
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "(Foo, Bar) -> (Foo, Bar)")
+    }
+
+    func testParseOptionalReturningClosureType() {
+        let formatter = Formatter(tokenize("""
+        let foo: (Foo, Bar) -> (Foo, Bar)? = { foo, bar in (foo, bar) }
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "(Foo, Bar) -> (Foo, Bar)?")
+    }
+
+    func testParseOptionalClosureType() {
+        let formatter = Formatter(tokenize("""
+        let foo: ((Foo, Bar) -> (Foo, Bar)?)? = { foo, bar in (foo, bar) }
+        """))
+        XCTAssertEqual(formatter.parseType(at: 5).name, "((Foo, Bar) -> (Foo, Bar)?)?")
     }
 }

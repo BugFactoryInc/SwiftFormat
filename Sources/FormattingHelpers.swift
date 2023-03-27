@@ -31,11 +31,7 @@ extension Formatter {
            let startIndex = self.index(of: .startOfScope("("), before: prevIndex),
            indentForLine(at: startIndex) < indent
         {
-            if options.wrapArguments == .beforeFirst {
-                return !onSameLine(startIndex, prevIndex)
-            } else {
-                return next(.nonSpaceOrComment, after: startIndex)?.isLinebreak == true
-            }
+            return !onSameLine(startIndex, prevIndex)
         }
         return false
     }
@@ -43,14 +39,14 @@ extension Formatter {
     // remove self if possible
     func removeSelf(at i: Int, exclude: Set<String>, include: Set<String>? = nil) -> Bool {
         assert(tokens[i] == .identifier("self"))
+        let exclusionList = exclude.union(options.selfRequired).union(_FormatRules.globalSwiftFunctions)
         guard let dotIndex = index(of: .nonSpaceOrLinebreak, after: i, if: {
             $0 == .operator(".", .infix)
         }), !exclude.contains("self"),
         let nextIndex = index(of: .nonSpaceOrLinebreak, after: dotIndex),
         let token = token(at: nextIndex), token.isIdentifier,
         case let name = token.unescaped(), (include.map { $0.contains(name) } ?? true),
-        !exclude.contains(name), !options.selfRequired.contains(name),
-        !_FormatRules.globalSwiftFunctions.contains(name),
+        !isFunction(at: nextIndex, in: exclusionList),
         !backticksRequired(at: nextIndex, ignoreLeadingDot: true)
         else {
             return false
@@ -61,9 +57,10 @@ extension Formatter {
             case .startOfScope("["):
                 break
             case .startOfScope("("):
-                if case let .identifier(fn)? = last(.nonSpaceOrCommentOrLinebreak, before: scopeStart),
-                   options.selfRequired.contains(fn) ||
-                   fn == "expect" // Special case to support autoclosure arguments in the Nimble framework
+                if let prevIndex = self.index(of: .nonSpaceOrCommentOrLinebreak, before: scopeStart),
+                   isFunction(at: prevIndex, in: options.selfRequired.union([
+                       "expect", // Special case to support autoclosure arguments in the Nimble framework
+                   ]))
                 {
                     return false
                 }
@@ -416,8 +413,8 @@ extension Formatter {
                     linebreakIndex = index + 1
                 }
                 if !isCommentedCode(at: linebreakIndex + 1) {
-                    if tokens[linebreakIndex].isLinebreak, !options.truncateBlankLines ||
-                        next(.nonSpace, after: linebreakIndex).map({ !$0.isLinebreak }) ?? false
+                    if tokens[linebreakIndex].isLinebreak,
+                       next(.nonSpace, after: linebreakIndex).map({ !$0.isLinebreak }) ?? false
                     {
                         insertSpace(indent + options.indent, at: linebreakIndex + 1)
                     } else if !allowGrouping || (maxWidth > 0 &&
@@ -1029,6 +1026,331 @@ extension Formatter {
             } else if spaceBefore {
                 removeToken(at: index - 1)
             }
+        }
+    }
+
+    // Common implementation for the `hoistTry` and `hoistAwait` rules
+    // Hoists the first keyword of the specified type out of the specified scope
+    func hoistEffectKeyword(
+        _ keyword: String,
+        inScopeAt scopeStart: Int,
+        isEffectCapturingAt: (Int) -> Bool
+    ) {
+        assert(["try", "await"].contains(keyword))
+        guard let i = index(of: .keyword(keyword), after: scopeStart),
+              token(at: i + 1)?.isUnwrapOperator == false
+        else {
+            return
+        }
+
+        func insertEffectKeyword(at insertIndex: Int) {
+            var insertIndex = insertIndex
+            if tokens[insertIndex].isSpace {
+                insertIndex += 1
+            }
+
+            if tokens[insertIndex] == .keyword(keyword) {
+                return
+            }
+
+            insert([.keyword(keyword)], at: insertIndex)
+
+            if let nextToken = token(at: insertIndex + 1), !nextToken.isSpace {
+                insertSpace(" ", at: insertIndex + 1)
+            } else {
+                insertSpace(" ", at: insertIndex)
+            }
+        }
+
+        func isStringInterpolation(at insertIndex: Int) -> Bool {
+            switch token(at: insertIndex) {
+            case .startOfScope("(")?:
+                return token(at: insertIndex - 1) == .stringBody("\\")
+            case .stringBody("\\")?:
+                return token(at: insertIndex + 1) == .startOfScope("(")
+            default:
+                return false
+            }
+        }
+
+        func removeKeyword() {
+            removeToken(at: i)
+            if token(at: i)?.isSpace == true {
+                removeToken(at: i)
+            }
+        }
+
+        var insertIndex = scopeStart
+        loop: while let i = index(of: .nonSpaceOrLinebreak, before: insertIndex) {
+            let prevToken = tokens[insertIndex]
+            switch tokens[i] {
+            case .identifier where prevToken == .startOfScope("("):
+                if isEffectCapturingAt(i) {
+                    return
+                }
+            case let .keyword(name) where ["is", "as", "try", "await"].contains(name),
+                 let .operator(name, .infix) where name != "=":
+                break
+            case .operator(_, .postfix), .identifier, .number, .endOfScope:
+                if !prevToken.isOperator(ofType: .infix),
+                   !prevToken.isOperator(ofType: .postfix)
+                {
+                    break loop
+                }
+            case .operator(_, .prefix),
+                 _ where isStringInterpolation(at: i),
+                 .startOfScope where tokens[i].isStringDelimiter:
+                break
+            default:
+                break loop
+            }
+            insertIndex = i
+        }
+
+        removeKeyword()
+        insertEffectKeyword(at: insertIndex)
+    }
+
+    /// Whether or not the code block starting at the given `.startOfScope` token
+    /// has a single statement. This makes it eligible to be used with implicit return.
+    func blockBodyHasSingleStatement(atStartOfScope startOfScopeIndex: Int) -> Bool {
+        guard let endOfScopeIndex = endOfScope(at: startOfScopeIndex) else { return false }
+
+        let startOfBody = self.startOfBody(atStartOfScope: startOfScopeIndex)
+
+        // Some heuristics to determine if this is a multi-statement block:
+
+        // (1) In Swift 5.8+, if and switch statements where each branch is a single statement
+        //     are also considered single statements
+        if
+            options.swiftVersion >= "5.8",
+            let firstTokenInBody = index(of: .nonSpaceOrCommentOrLinebreak, after: startOfBody),
+            let conditionalBranches = conditionalBranches(at: firstTokenInBody)
+        {
+            let isSingleStatement = conditionalBranches.allSatisfy { branch in
+                blockBodyHasSingleStatement(atStartOfScope: branch.startOfBranch)
+            }
+
+            let endOfStatement = conditionalBranches.last?.endOfBranch ?? firstTokenInBody
+            let isOnlyStatement = index(of: .nonSpaceOrCommentOrLinebreak, after: endOfStatement) == endOfScopeIndex
+
+            return isSingleStatement && isOnlyStatement
+        }
+
+        // (2) any other statement-forming scope (e.g. guard, #if)
+        //     within the main body, that isn't itself a closure
+        for innerStartOfScopeIndex in (startOfBody + 1) ... endOfScopeIndex
+            where token(at: innerStartOfScopeIndex)?.isStartOfScope == true
+            && token(at: innerStartOfScopeIndex) != .startOfScope("(")
+        {
+            let innerStartOfScope = tokens[innerStartOfScopeIndex]
+
+            if innerStartOfScope != .startOfScope("("), // Method calls / other parents are fine
+               innerStartOfScope != .startOfScope("\""), // Strings are fine
+               innerStartOfScope != .startOfScope("\"\"\""), // Strings are fine
+               !indexIsWithinNestedClosure(innerStartOfScopeIndex, startOfScopeIndex: startOfScopeIndex),
+               !isStartOfClosure(at: innerStartOfScopeIndex)
+            {
+                return false
+            }
+        }
+
+        // (3) any return statement within the main body
+        //     that isn't at the very beginning of the body
+        for returnIndex in startOfBody ... endOfScopeIndex
+            where token(at: returnIndex)?.string == "return"
+        {
+            let isAtStartOfClosure = index(of: .nonSpaceOrCommentOrLinebreak, before: returnIndex) == startOfBody
+
+            if !indexIsWithinNestedClosure(returnIndex, startOfScopeIndex: startOfScopeIndex),
+               !isAtStartOfClosure
+            {
+                return false
+            }
+        }
+
+        // (4) if there are any semicolons within the scope
+        //     but not at the end of a line
+        for semicolonIndex in startOfBody ... endOfScopeIndex
+            where token(at: semicolonIndex)?.string == ";"
+        {
+            let nextTokenIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: semicolonIndex) ?? semicolonIndex
+            let isAtEndOfLine = startOfLine(at: semicolonIndex) != startOfLine(at: nextTokenIndex)
+
+            if !indexIsWithinNestedClosure(semicolonIndex, startOfScopeIndex: startOfScopeIndex), !isAtEndOfLine {
+                return false
+            }
+        }
+
+        // (5) if there are equals operators within the scope
+        for equalsIndex in startOfBody ... endOfScopeIndex
+            where token(at: equalsIndex)?.string == "="
+        {
+            if !indexIsWithinNestedClosure(equalsIndex, startOfScopeIndex: startOfScopeIndex) {
+                return false
+            }
+        }
+
+        // (6) if there is a method call immediately followed an identifier, as in:
+        //
+        //   method()
+        //   otherMethod()
+        //
+        for closingParenIndex in startOfBody ... endOfScopeIndex
+            where token(at: closingParenIndex)?.string == ")"
+        {
+            if !indexIsWithinNestedClosure(closingParenIndex, startOfScopeIndex: startOfScopeIndex),
+               let nextNonWhitespace = index(
+                   of: .nonSpaceOrCommentOrLinebreak,
+                   after: closingParenIndex
+               ),
+               token(at: nextNonWhitespace)?.isIdentifier == true
+            {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// The token before the body of the scope following the given `startOfScopeIndex`.
+    /// If this is a closure, the body starts after any `in` clause that may exist.
+    func startOfBody(atStartOfScope startOfScopeIndex: Int) -> Int {
+        // If this is a closure that has an `in` clause, the body scope starts after that
+        if
+            isStartOfClosure(at: startOfScopeIndex),
+            let endOfScopeIndex = endOfScope(at: startOfScopeIndex),
+            let inToken = index(of: .keyword("in"), in: (startOfScopeIndex + 1) ..< endOfScopeIndex),
+            !indexIsWithinNestedClosure(inToken, startOfScopeIndex: startOfScopeIndex)
+        {
+            return inToken
+        } else {
+            return startOfScopeIndex
+        }
+    }
+
+    typealias ConditionalBranch = (startOfBranch: Int, endOfBranch: Int)
+
+    /// If `index` is the start of an `if` or `switch` statement,
+    /// finds and returns all of the statement branches.
+    func conditionalBranches(at index: Int) -> [ConditionalBranch]? {
+        if tokens[index] == .keyword("if") {
+            return ifStatementBranches(at: index)
+        } else if tokens[index] == .keyword("switch") {
+            return switchStatementBranches(at: index)
+        } else {
+            return nil
+        }
+    }
+
+    /// Finds all of the branch bodies in an if statement.
+    /// Returns the index of the `startOfScope` and `endOfScope` of each branch.
+    func ifStatementBranches(at ifIndex: Int) -> [ConditionalBranch] {
+        var branches = [(startOfBranch: Int, endOfBranch: Int)]()
+        var nextConditionalBranchIndex: Int? = ifIndex
+
+        while
+            let conditionalBranchIndex = nextConditionalBranchIndex,
+            ["if", "else"].contains(tokens[conditionalBranchIndex].string),
+            let startOfBody = index(of: .startOfScope, after: conditionalBranchIndex),
+            tokens[startOfBody] == .startOfScope("{"),
+            let endOfBody = endOfScope(at: startOfBody),
+            tokens[endOfBody] == .endOfScope("}")
+        {
+            branches.append((startOfBranch: startOfBody, endOfBranch: endOfBody))
+            nextConditionalBranchIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: endOfBody)
+        }
+
+        return branches
+    }
+
+    /// Finds all of the branch bodies in a switch statement.
+    /// Returns the index of the `startOfScope` and `endOfScope` of each branch.
+    func switchStatementBranches(at switchIndex: Int) -> [ConditionalBranch] {
+        guard
+            let startOfSwitchScope = index(of: .startOfScope("{"), after: switchIndex),
+            let firstCaseIndex = index(of: .nonSpaceOrCommentOrLinebreak, after: startOfSwitchScope),
+            tokens[firstCaseIndex].isSwitchCaseOrDefault
+        else { return [] }
+
+        var branches = [(startOfBranch: Int, endOfBranch: Int)]()
+        var nextConditionalBranchIndex: Int? = firstCaseIndex
+
+        while
+            let conditionalBranchIndex = nextConditionalBranchIndex,
+            tokens[conditionalBranchIndex].isSwitchCaseOrDefault,
+            let startOfBody = index(of: .startOfScope, after: conditionalBranchIndex),
+            tokens[startOfBody] == .startOfScope(":"),
+            let endOfBody = endOfScope(at: startOfBody)
+        {
+            branches.append((startOfBranch: startOfBody, endOfBranch: endOfBody))
+
+            if tokens[endOfBody].isSwitchCaseOrDefault {
+                nextConditionalBranchIndex = endOfBody
+            } else {
+                break
+            }
+        }
+
+        return branches
+    }
+
+    /// Performs a closure for each conditional branch in the given conditional statement,
+    /// including any recursive conditional inside an individual branch.
+    /// Iterates backwards to support removing tokens in `handle`.
+    func forEachRecursiveConditionalBranch(
+        in branches: [ConditionalBranch],
+        _ handle: (ConditionalBranch) -> Void
+    ) {
+        for branch in branches.reversed() {
+            if let tokenAfterEquals = index(of: .nonSpaceOrCommentOrLinebreak, after: branch.startOfBranch),
+               let conditionalBranches = conditionalBranches(at: tokenAfterEquals)
+            {
+                forEachRecursiveConditionalBranch(in: conditionalBranches, handle)
+            } else {
+                handle(branch)
+            }
+        }
+    }
+
+    /// Performs a check for each conditional branch in the given conditional statement,
+    /// including any recursive conditional inside an individual branch
+    func allRecursiveConditionalBranches(
+        in branches: [ConditionalBranch],
+        satisfy branchSatisfiesCondition: (ConditionalBranch) -> Bool
+    )
+        -> Bool
+    {
+        var allSatisfy = true
+        forEachRecursiveConditionalBranch(in: branches) { branch in
+            if !branchSatisfiesCondition(branch) {
+                allSatisfy = false
+            }
+        }
+        return allSatisfy
+    }
+
+    /// Whether the given index is directly within the body of the given scope, or part of a nested closure
+    func indexIsWithinNestedClosure(_ index: Int, startOfScopeIndex: Int) -> Bool {
+        let startOfScopeAtIndex: Int
+        if token(at: index)?.isStartOfScope == true {
+            startOfScopeAtIndex = index
+        } else if let previousStartOfScope = self.index(of: .startOfScope, before: index) {
+            startOfScopeAtIndex = previousStartOfScope
+        } else {
+            return false
+        }
+
+        if startOfScopeAtIndex <= startOfScopeIndex {
+            return false
+        }
+
+        if isStartOfClosure(at: startOfScopeAtIndex) {
+            return startOfScopeAtIndex != startOfScopeIndex
+        } else if token(at: startOfScopeAtIndex)?.isStartOfScope == true {
+            return indexIsWithinNestedClosure(startOfScopeAtIndex - 1, startOfScopeIndex: startOfScopeIndex)
+        } else {
+            return false
         }
     }
 }

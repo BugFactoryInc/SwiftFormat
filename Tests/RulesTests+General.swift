@@ -370,6 +370,19 @@ class GeneralTests: RulesTests {
         testFormatting(for: input, output, rule: FormatRules.fileHeader, options: options)
     }
 
+    func testReplaceHeaderWhenFileContainsNoCode() {
+        let input = "// foobar"
+        let options = FormatOptions(fileHeader: "// foobar")
+        testFormatting(for: input, rule: FormatRules.fileHeader, options: options,
+                       exclude: ["linebreakAtEndOfFile"])
+    }
+
+    func testReplaceHeaderWhenFileContainsNoCode2() {
+        let input = "// foobar\n"
+        let options = FormatOptions(fileHeader: "// foobar")
+        testFormatting(for: input, rule: FormatRules.fileHeader, options: options)
+    }
+
     func testMultilineCommentHeader() {
         let input = "/****************************/\n/* Created by Nick Lockwood */\n/****************************/\n\n\n/// func\nfunc foo() {}"
         let output = "/// func\nfunc foo() {}"
@@ -523,6 +536,32 @@ class GeneralTests: RulesTests {
         let output = "// Header line1\n// Header line2\n\nclass Foo {}"
         let options = FormatOptions(fileHeader: "// Header line1\n// Header line2")
         testFormatting(for: input, output, rule: FormatRules.fileHeader, options: options)
+    }
+
+    func testFileHeaderBlankLineNotRemovedBeforeFollowingComment() {
+        let input = """
+        //
+        // Header
+        //
+
+        // Something else...
+        """
+        let options = FormatOptions(fileHeader: "//\n// Header\n//")
+        testFormatting(for: input, rule: FormatRules.fileHeader, options: options)
+    }
+
+    func testFileHeaderBlankLineNotRemovedBeforeFollowingComment2() {
+        let input = """
+        //
+        // Header
+        //
+
+        //
+        // Something else...
+        //
+        """
+        let options = FormatOptions(fileHeader: "//\n// Header\n//")
+        testFormatting(for: input, rule: FormatRules.fileHeader, options: options)
     }
 
     func testFileHeaderRemovedAfterHashbang() {
@@ -1035,5 +1074,27 @@ class GeneralTests: RulesTests {
             bar = 6
         """
         testFormatting(for: input, output, rule: FormatRules.leadingDelimiters)
+    }
+
+    // MARK: - docComments
+
+    func testDocCommentsAssociatedTypeNotReplaced() {
+        let input = """
+        /// An interesting comment about Foo.
+        associatedtype Foo
+        """
+        testFormatting(for: input, rule: FormatRules.docComments)
+    }
+
+    func testNonDocCommentsAssociatedTypeReplaced() {
+        let input = """
+        // An interesting comment about Foo.
+        associatedtype Foo
+        """
+        let output = """
+        /// An interesting comment about Foo.
+        associatedtype Foo
+        """
+        testFormatting(for: input, output, rule: FormatRules.docComments)
     }
 }
